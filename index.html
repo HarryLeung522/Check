@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>派克導師管理系統 - 進階過濾版</title>
+    <title>派克導師管理系統 - 強力讀取版</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <style>
         :root { --primary: #2c3e50; --accent: #3498db; --success: #27ae60; }
@@ -49,24 +49,29 @@
         <div class="control-group full-width">
             <label>導師名稱：</label>
             <select id="tutorFilter">
-                <option value="ALL">所有導師</option>
+                <option value="ALL">讀取中...</option>
             </select>
         </div>
 
         <button class="btn-main full-width" onclick="startGeneration()">生成 WhatsApp 訊息</button>
     </div>
 
-    <div id="status" class="status">未讀取資料</div>
+    <div id="status" class="status">準備讀取資料...</div>
     <div id="output"></div>
 </div>
 
 <script>
-    const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQFFF43IJhu4qgR8KiR_Oo9lwv7LkuTcjHzebpTvUd-SnnivG_5GwDT3-JzEncLTxKXbZuQ8LnU90n3/pub?output=csv';
-    let cachedData = []; // 儲存讀取到的資料
+    // 原始 Google Sheet CSV 連結
+    const ORIGINAL_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQFFF43IJhu4qgR8KiR_Oo9lwv7LkuTcjHzebpTvUd-SnnivG_5GwDT3-JzEncLTxKXbZuQ8LnU90n3/pub?output=csv';
+    
+    // 使用 CORS Proxy 繞過瀏覽器限制
+    const SHEET_URL = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(ORIGINAL_URL);
+
+    let cachedData = []; 
 
     window.onload = () => {
         document.getElementById('targetDate').valueAsDate = new Date();
-        initTutorList(); // 初始化讀取導師清單
+        initTutorList(); 
     };
 
     function parseChineseDate(dateStr) {
@@ -78,31 +83,46 @@
         return null;
     }
 
-    // 初始化：預先讀取一次 Sheet 以建立導師清單
     async function initTutorList() {
         const status = document.getElementById('status');
+        const select = document.getElementById('tutorFilter');
+        
+        status.innerText = '正在連線至 Google Sheet...';
+
         Papa.parse(SHEET_URL, {
             download: true,
+            header: false, // 你的 CSV 格式看來不需要 header mode，因為我們是用 index 存取
             complete: (results) => {
+                console.log("資料讀取成功:", results); // 用於除錯
                 cachedData = results.data;
+                
+                if (!cachedData || cachedData.length === 0) {
+                    status.innerText = '❌ 讀取成功但資料是空的，請檢查 Sheet。';
+                    return;
+                }
+
                 const tutors = new Set();
                 cachedData.forEach((row, idx) => {
+                    // 跳過標題列 (idx 0) 和沒有導師名字的列
                     if (idx === 0 || !row[6]) return;
-                    // 考慮到一人多名，同樣進行拆分
+                    
                     const names = row[6].split(/[\/,，\s、]+/).filter(n => n.length > 0);
                     names.forEach(n => tutors.add(n.trim()));
                 });
 
-                const select = document.getElementById('tutorFilter');
+                select.innerHTML = '<option value="ALL">所有導師</option>'; 
                 Array.from(tutors).sort().forEach(name => {
                     const opt = document.createElement('option');
                     opt.value = name;
                     opt.textContent = name;
                     select.appendChild(opt);
                 });
-                status.innerText = '資料同步完成，請選擇條件後生成。';
+                status.innerText = '✅ 資料同步完成，請選擇條件後生成。';
             },
-            error: () => { status.innerText = '連線失敗，請檢查網路或使用 Firefox。'; }
+            error: (err) => { 
+                console.error(err);
+                status.innerText = '❌ 連線失敗！請確認 Google Sheet 已「發布到網路」。'; 
+            }
         });
     }
 
@@ -114,7 +134,8 @@
         const filterName = document.getElementById('tutorFilter').value;
 
         if (!cachedData || cachedData.length === 0) {
-            status.innerText = '正在重新獲取資料...';
+            status.innerText = '⚠️ 資料未就緒，正在重新獲取...';
+            initTutorList();
             return;
         }
 
@@ -130,23 +151,26 @@
         let count = 0;
 
         cachedData.forEach((row, idx) => {
-            if (idx === 0 || row.length < 7) return;
+            if (idx === 0 || row.length < 7) return; // 確保有足夠的欄位
 
-            const dateObj = parseChineseDate(row[3]);
-            const rawNames = row[6] ? row[6].trim() : "";
+            const dateObj = parseChineseDate(row[3]); // D行: 日期
+            const rawNames = row[6] ? row[6].trim() : ""; // G行: 導師
 
             if (dateObj && rawNames && dateObj >= baseDate && dateObj <= endDate) {
                 const names = rawNames.split(/[\/,，\s、]+/).filter(n => n.length > 0);
                 
                 names.forEach(name => {
                     const trimmedName = name.trim();
-                    // 過濾導師名稱
                     if (filterName !== 'ALL' && trimmedName !== filterName) return;
 
                     if (!personGroups[trimmedName]) personGroups[trimmedName] = [];
                     personGroups[trimmedName].push({
-                        school: row[0], course: row[1], date: row[3],
-                        day: row[4], time: row[5], ts: dateObj.getTime()
+                        school: row[0], // A行: 學校
+                        course: row[1], // B行: 課程
+                        date: row[3],   // D行: 日期
+                        day: row[4],    // E行: 星期
+                        time: row[5],   // F行: 時間
+                        ts: dateObj.getTime()
                     });
                     count++;
                 });
@@ -164,7 +188,7 @@
             const lessons = personGroups[name].sort((a,b) => a.ts - b.ts);
             let lessonList = "";
             lessons.forEach(l => {
-                // 修改處：移除了（${l.course}），只保留日期、星期、時間和學校
+                // 格式：日期（星期）時間：學校
                 lessonList += `${l.date}（${l.day}）${l.time}：${l.school}\n`;
             });
 
