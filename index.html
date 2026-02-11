@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>派克導師管理系統 - 進階過濾版</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        :root { --primary: #2c3e50; --accent: #3498db; --success: #27ae60; }
+        body { font-family: "Microsoft JhengHei", sans-serif; background: #f4f7f6; padding: 20px; line-height: 1.6; }
+        .container { max-width: 850px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        h1 { text-align: center; color: var(--primary); margin-bottom: 25px; }
+        .controls { background: #ebf5fb; padding: 25px; border-radius: 10px; border: 1px solid #d6eaf8; display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .control-group { display: flex; flex-direction: column; gap: 5px; }
+        label { font-weight: bold; color: #34495e; }
+        input, select { padding: 10px; border-radius: 5px; border: 1px solid #ccc; font-size: 15px; }
+        .full-width { grid-column: span 2; margin-top: 10px; }
+        .btn-main { background: var(--accent); color: white; border: none; padding: 12px; border-radius: 5px; cursor: pointer; font-size: 16px; font-weight: bold; transition: 0.3s; }
+        .btn-main:hover { background: #2980b9; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+        .status { text-align: center; margin: 15px 0; font-weight: bold; color: #e67e22; min-height: 24px; }
+        .tutor-card { border: 1px solid #ddd; margin-bottom: 25px; border-radius: 8px; background: #fff; overflow: hidden; animation: fadeIn 0.5s ease; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .tutor-header { background: var(--primary); color: white; padding: 12px 15px; display: flex; justify-content: space-between; align-items: center; }
+        .tutor-content { padding: 20px; white-space: pre-wrap; background: #f9f9f9; font-size: 15px; border-top: 1px solid #eee; color: #2c3e50; }
+        .copy-btn { background: var(--success); color: white; border: none; padding: 6px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>派克導師提示器</h1>
+    
+    <div class="controls">
+        <div class="control-group">
+            <label>選擇日期（建議選星期日）：</label>
+            <input type="date" id="targetDate">
+        </div>
+        
+        <div class="control-group">
+            <label>時長：</label>
+            <select id="duration">
+                <option value="7">一星期</option>
+                <option value="14">兩星期</option>
+                <option value="30">一個月</option>
+                <option value="90">三個月</option>
+            </select>
+        </div>
+
+        <div class="control-group full-width">
+            <label>導師名稱：</label>
+            <select id="tutorFilter">
+                <option value="ALL">所有導師</option>
+            </select>
+        </div>
+
+        <button class="btn-main full-width" onclick="startGeneration()">生成 WhatsApp 訊息</button>
+    </div>
+
+    <div id="status" class="status">未讀取資料</div>
+    <div id="output"></div>
+</div>
+
+<script>
+    const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQFFF43IJhu4qgR8KiR_Oo9lwv7LkuTcjHzebpTvUd-SnnivG_5GwDT3-JzEncLTxKXbZuQ8LnU90n3/pub?output=csv';
+    let cachedData = []; // 儲存讀取到的資料
+
+    window.onload = () => {
+        document.getElementById('targetDate').valueAsDate = new Date();
+        initTutorList(); // 初始化讀取導師清單
+    };
+
+    function parseChineseDate(dateStr) {
+        if (!dateStr) return null;
+        const matches = dateStr.match(/\d+/g);
+        if (matches && matches.length >= 3) {
+            return new Date(parseInt(matches[0]), parseInt(matches[1]) - 1, parseInt(matches[2]));
+        }
+        return null;
+    }
+
+    // 初始化：預先讀取一次 Sheet 以建立導師清單
+    async function initTutorList() {
+        const status = document.getElementById('status');
+        Papa.parse(SHEET_URL, {
+            download: true,
+            complete: (results) => {
+                cachedData = results.data;
+                const tutors = new Set();
+                cachedData.forEach((row, idx) => {
+                    if (idx === 0 || !row[6]) return;
+                    // 考慮到一人多名，同樣進行拆分
+                    const names = row[6].split(/[\/,，\s、]+/).filter(n => n.length > 0);
+                    names.forEach(n => tutors.add(n.trim()));
+                });
+
+                const select = document.getElementById('tutorFilter');
+                Array.from(tutors).sort().forEach(name => {
+                    const opt = document.createElement('option');
+                    opt.value = name;
+                    opt.textContent = name;
+                    select.appendChild(opt);
+                });
+                status.innerText = '資料同步完成，請選擇條件後生成。';
+            },
+            error: () => { status.innerText = '連線失敗，請檢查網路或使用 Firefox。'; }
+        });
+    }
+
+    function startGeneration() {
+        const output = document.getElementById('output');
+        const status = document.getElementById('status');
+        const startDateStr = document.getElementById('targetDate').value;
+        const durationDays = parseInt(document.getElementById('duration').value);
+        const filterName = document.getElementById('tutorFilter').value;
+
+        if (!cachedData || cachedData.length === 0) {
+            status.innerText = '正在重新獲取資料...';
+            return;
+        }
+
+        output.innerHTML = '';
+        
+        const baseDate = new Date(startDateStr);
+        baseDate.setHours(0,0,0,0);
+        const endDate = new Date(baseDate);
+        endDate.setDate(endDate.getDate() + durationDays);
+        endDate.setHours(23,59,59,999);
+
+        const personGroups = {};
+        let count = 0;
+
+        cachedData.forEach((row, idx) => {
+            if (idx === 0 || row.length < 7) return;
+
+            const dateObj = parseChineseDate(row[3]);
+            const rawNames = row[6] ? row[6].trim() : "";
+
+            if (dateObj && rawNames && dateObj >= baseDate && dateObj <= endDate) {
+                const names = rawNames.split(/[\/,，\s、]+/).filter(n => n.length > 0);
+                
+                names.forEach(name => {
+                    const trimmedName = name.trim();
+                    // 過濾導師名稱
+                    if (filterName !== 'ALL' && trimmedName !== filterName) return;
+
+                    if (!personGroups[trimmedName]) personGroups[trimmedName] = [];
+                    personGroups[trimmedName].push({
+                        school: row[0], course: row[1], date: row[3],
+                        day: row[4], time: row[5], ts: dateObj.getTime()
+                    });
+                    count++;
+                });
+            }
+        });
+
+        if (count === 0) {
+            status.innerText = '❌ 該時段內找不到相關課程。';
+            return;
+        }
+
+        status.innerText = `✅ 成功生成 ${Object.keys(personGroups).length} 位導師的訊息！`;
+
+        Object.keys(personGroups).sort().forEach(name => {
+            const lessons = personGroups[name].sort((a,b) => a.ts - b.ts);
+            let lessonList = "";
+            lessons.forEach(l => {
+                // 修改處：移除了（${l.course}），只保留日期、星期、時間和學校
+                lessonList += `${l.date}（${l.day}）${l.time}：${l.school}\n`;
+            });
+
+            const finalMsg = `${name}，想提提你，以下係你今個星期要上堂嘅時間：\n${lessonList}\n請預早最少10分鐘到達學校，如有任何關於課堂問題，請儘早同我講！另亦提醒你記得填埋導師進度表，thanks!!!`;
+
+            const card = document.createElement('div');
+            card.className = 'tutor-card';
+            card.innerHTML = `
+                <div class="tutor-header">
+                    <span>導師：${name}</span>
+                    <button class="copy-btn" onclick="copyText(this, \`${finalMsg.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`)">複製 WhatsApp</button>
+                </div>
+                <div class="tutor-content">${finalMsg}</div>
+            `;
+            output.appendChild(card);
+        });
+    }
+
+    function copyText(btn, text) {
+        const el = document.createElement('textarea');
+        el.value = text;
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand('copy');
+        document.body.removeChild(el);
+        const oldTxt = btn.innerText;
+        btn.innerText = '✅ 已複製';
+        setTimeout(() => btn.innerText = oldTxt, 1500);
+    }
+</script>
+
+</body>
+</html>
