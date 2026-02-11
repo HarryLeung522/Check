@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>派克導師管理系統 - WhatsApp 穩定版</title>
+    <title>派克導師管理系統 - 全能修復版</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <style>
-        :root { --primary: #2c3e50; --accent: #3498db; --success: #27ae60; --whatsapp: #25D366; }
+        :root { --primary: #2c3e50; --accent: #3498db; --success: #27ae60; --whatsapp: #25D366; --warning: #f39c12; }
         body { font-family: "Microsoft JhengHei", sans-serif; background: #f4f7f6; padding: 20px; line-height: 1.6; }
         .container { max-width: 850px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
         h1 { text-align: center; color: var(--primary); margin-bottom: 25px; }
@@ -21,16 +21,19 @@
         .tutor-card { border: 1px solid #ddd; margin-bottom: 25px; border-radius: 8px; background: #fff; overflow: hidden; animation: fadeIn 0.5s ease; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .tutor-header { background: var(--primary); color: white; padding: 12px 15px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
-        .tutor-header span { font-size: 1.1em; font-weight: bold; }
         .tutor-content { padding: 20px; white-space: pre-wrap; background: #f9f9f9; font-size: 15px; border-top: 1px solid #eee; color: #2c3e50; }
         
-        /* 按鈕樣式 */
         .btn-group { display: flex; gap: 10px; }
         .action-btn { border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; text-decoration: none; font-size: 14px; display: inline-flex; align-items: center; color: white;}
         .copy-btn { background: #95a5a6; }
         .wa-btn { background: var(--whatsapp); }
         .wa-btn:hover { background: #128C7E; }
         .copy-btn:hover { background: #7f8c8d; }
+
+        /* 上傳區域樣式 */
+        .upload-area { border: 2px dashed #bdc3c7; padding: 15px; text-align: center; border-radius: 8px; margin-top: 10px; background: #fdfdfd; cursor: pointer; transition: 0.3s; }
+        .upload-area:hover { border-color: var(--accent); background: #ecf0f1; }
+        .upload-text { color: #7f8c8d; font-size: 0.9em; }
     </style>
 </head>
 <body>
@@ -38,6 +41,11 @@
 <div class="container">
     <h1>派克導師 WhatsApp 發送器</h1>
     
+    <div id="uploadSection" class="upload-area" onclick="document.getElementById('fileInput').click()">
+        <span class="upload-text">👉 如果自動連線失敗，請點擊這裡<b>上傳 CSV 檔案</b> (或是直接將檔案拖曳至此)</span>
+        <input type="file" id="fileInput" accept=".csv" style="display: none;" onchange="handleFileUpload(this.files)">
+    </div>
+
     <div class="controls">
         <div class="control-group">
             <label>選擇日期（建議選星期日）：</label>
@@ -57,7 +65,7 @@
         <div class="control-group full-width">
             <label>導師名稱：</label>
             <select id="tutorFilter">
-                <option value="ALL">等待連線中...</option>
+                <option value="ALL">等待資料中...</option>
             </select>
         </div>
 
@@ -70,12 +78,10 @@
 
 <script>
     // --- 設定區 ---
-    const ORIGINAL_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQFFF43IJhu4qgR8KiR_Oo9lwv7LkuTcjHzebpTvUd-SnnivG_5GwDT3-JzEncLTxKXbZuQ8LnU90n3/pub?output=csv';
+    const DIRECT_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQFFF43IJhu4qgR8KiR_Oo9lwv7LkuTcjHzebpTvUd-SnnivG_5GwDT3-JzEncLTxKXbZuQ8LnU90n3/pub?output=csv';
+    const PROXY_URL = 'https://corsproxy.io/?' + encodeURIComponent(DIRECT_URL);
     
-    // 【重要】更換為 corsproxy.io，這通常比 allorigins 更穩定
-    const SHEET_URL = 'https://corsproxy.io/?' + encodeURIComponent(ORIGINAL_URL);
-    
-    // 【設定】電話號碼在 H 行 (A=0 ... H=7)
+    // 電話在 H 行 (0=A, ... 7=H)
     const PHONE_COL_INDEX = 7; 
     // --------------
 
@@ -83,8 +89,87 @@
 
     window.onload = () => {
         document.getElementById('targetDate').valueAsDate = new Date();
-        initTutorList(); 
+        tryAutoConnect(); // 嘗試自動連線
     };
+
+    // 嘗試自動連線 (先試 Proxy，再試直連)
+    function tryAutoConnect() {
+        const status = document.getElementById('status');
+        status.innerText = '正在嘗試自動連線...';
+
+        // 嘗試方法 1: Proxy
+        Papa.parse(PROXY_URL, {
+            download: true,
+            header: false,
+            skipEmptyLines: true,
+            complete: (results) => {
+                console.log("Proxy 連線成功");
+                processData(results.data, "✅ 自動連線成功 (Proxy)");
+            },
+            error: () => {
+                console.log("Proxy 失敗，嘗試直連...");
+                // 嘗試方法 2: 直連
+                Papa.parse(DIRECT_URL, {
+                    download: true,
+                    header: false,
+                    skipEmptyLines: true,
+                    complete: (results) => {
+                        console.log("直連成功");
+                        processData(results.data, "✅ 自動連線成功 (直連)");
+                    },
+                    error: () => {
+                        status.innerHTML = '❌ 自動連線失敗。<br>請點擊上方的虛線框，手動上傳您的 CSV 檔案。';
+                    }
+                });
+            }
+        });
+    }
+
+    // 處理手動上傳
+    function handleFileUpload(files) {
+        if (!files || files.length === 0) return;
+        const file = files[0];
+        Papa.parse(file, {
+            complete: (results) => {
+                processData(results.data, "✅ 檔案讀取成功 (手動上傳)");
+            },
+            error: () => {
+                document.getElementById('status').innerText = "❌ 檔案解析失敗，請確認格式。";
+            }
+        });
+    }
+
+    // 統一資料處理函數
+    function processData(data, successMsg) {
+        const status = document.getElementById('status');
+        const select = document.getElementById('tutorFilter');
+        
+        cachedData = data;
+        
+        if (!cachedData || cachedData.length === 0) {
+            status.innerText = '❌ 資料是空的。';
+            return;
+        }
+
+        const tutors = new Set();
+        cachedData.forEach((row, idx) => {
+            if (idx === 0) return;
+            // G行 (index 6) 是名字
+            if (row[6]) {
+                const names = row[6].split(/[\/,，\s、]+/).filter(n => n.length > 0);
+                names.forEach(n => tutors.add(n.trim()));
+            }
+        });
+
+        select.innerHTML = '<option value="ALL">所有導師</option>'; 
+        Array.from(tutors).sort().forEach(name => {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = name;
+            select.appendChild(opt);
+        });
+        status.innerText = successMsg;
+    }
 
     function parseChineseDate(dateStr) {
         if (!dateStr) return null;
@@ -95,58 +180,6 @@
         return null;
     }
 
-    async function initTutorList() {
-        const status = document.getElementById('status');
-        const select = document.getElementById('tutorFilter');
-        
-        status.innerText = '正在嘗試連線至 Google Sheet (使用強力線路)...';
-
-        Papa.parse(SHEET_URL, {
-            download: true,
-            header: false,
-            skipEmptyLines: true,
-            complete: (results) => {
-                console.log("下載成功，資料筆數：", results.data.length);
-                cachedData = results.data;
-                
-                if (!cachedData || cachedData.length === 0) {
-                    status.innerText = '❌ 連線成功但沒有讀取到資料。\n請檢查 Google Sheet 是否為空白。';
-                    return;
-                }
-
-                const tutors = new Set();
-                cachedData.forEach((row, idx) => {
-                    // 跳過標題列
-                    if (idx === 0) return;
-                    
-                    // 確保 G 行 (index 6) 有名字
-                    if (row[6]) {
-                        const names = row[6].split(/[\/,，\s、]+/).filter(n => n.length > 0);
-                        names.forEach(n => tutors.add(n.trim()));
-                    }
-                });
-
-                if (tutors.size === 0) {
-                    status.innerText = '⚠️ 讀取到資料，但找不到導師名字 (G行)。\n請檢查 Google Sheet 格式。';
-                    return;
-                }
-
-                select.innerHTML = '<option value="ALL">所有導師</option>'; 
-                Array.from(tutors).sort().forEach(name => {
-                    const opt = document.createElement('option');
-                    opt.value = name;
-                    opt.textContent = name;
-                    select.appendChild(opt);
-                });
-                status.innerText = '✅ 資料同步完成！請開始操作。';
-            },
-            error: (err) => { 
-                console.error("Papa Parse Error:", err);
-                status.innerText = '❌ 連線失敗！\n1. 請確認 Google Sheet 已按「發布到網路」。\n2. 請確認網路連線正常。'; 
-            }
-        });
-    }
-
     function startGeneration() {
         const output = document.getElementById('output');
         const status = document.getElementById('status');
@@ -155,7 +188,7 @@
         const filterName = document.getElementById('tutorFilter').value;
 
         if (!cachedData || cachedData.length === 0) {
-            initTutorList();
+            status.innerText = '⚠️ 請先等待連線完成，或手動上傳檔案。';
             return;
         }
 
@@ -176,8 +209,7 @@
             const dateObj = parseChineseDate(row[3]); // D行 日期
             const rawNames = row[6] ? row[6].trim() : ""; // G行 導師
             
-            // 讀取電話號碼 (H行, index 7)
-            // 有時候 CSV 讀取進來會帶有空白，務必 trim()
+            // H行 (Index 7) 電話
             const rawPhone = row[PHONE_COL_INDEX] ? row[PHONE_COL_INDEX].toString().trim() : "";
 
             if (dateObj && rawNames && dateObj >= baseDate && dateObj <= endDate) {
@@ -192,15 +224,13 @@
                     }
                     
                     personGroups[trimmedName].lessons.push({
-                        school: row[0], // A行 學校
-                        date: row[3],   // D行 日期
-                        day: row[4],    // E行 星期
-                        time: row[5],   // F行 時間
+                        school: row[0], // A行
+                        date: row[3],   // D行
+                        day: row[4],    // E行
+                        time: row[5],   // F行
                         ts: dateObj.getTime()
                     });
                     
-                    // 如果這行有電話，並且該導師還沒存過電話，就存進去
-                    // 優先使用非空的電話號碼
                     if (rawPhone && rawPhone.length > 4) {
                         personGroups[trimmedName].phone = rawPhone;
                     }
@@ -228,28 +258,21 @@
 
             const finalMsg = `${name}，想提提你，以下係你今個星期要上堂嘅時間：\n${lessonList}\n請預早最少10分鐘到達學校，如有任何關於課堂問題，請儘早同我講！另亦提醒你記得填埋導師進度表，thanks!!!`;
             
-            // 處理電話號碼與 WhatsApp 連結
             let phoneBtnHtml = "";
-            let debugPhoneInfo = ""; // 除錯用，如果沒出現按鈕可以看這個
+            let debugPhoneInfo = "";
 
             if (data.phone) {
-                // 清理非數字字符
                 let cleanPhone = data.phone.replace(/\D/g, '');
-                
-                // 香港號碼處理：如果是 8 位數 (例如 91234567)，自動補 852
-                if (cleanPhone.length === 8) {
-                    cleanPhone = '852' + cleanPhone;
-                }
+                if (cleanPhone.length === 8) cleanPhone = '852' + cleanPhone;
 
                 if (cleanPhone.length >= 8) {
-                    // 使用 wa.me 連結
                     const waLink = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(finalMsg)}`;
-                    phoneBtnHtml = `<a href="${waLink}" target="_blank" class="action-btn wa-btn">📤 WhatsApp 傳送</a>`;
+                    phoneBtnHtml = `<a href="${waLink}" target="_blank" class="action-btn wa-btn">📤 WhatsApp</a>`;
                 } else {
-                    debugPhoneInfo = `<span style="font-size:12px; color:#999; margin-left:10px;">(號碼格式異常: ${data.phone})</span>`;
+                    debugPhoneInfo = `<span style="font-size:12px; color:#999; margin-left:5px;">(號碼異常)</span>`;
                 }
             } else {
-                 debugPhoneInfo = `<span style="font-size:12px; color:#999; margin-left:10px;">(H行無電話)</span>`;
+                 debugPhoneInfo = `<span style="font-size:12px; color:#999; margin-left:5px;">(無電話)</span>`;
             }
 
             const card = document.createElement('div');
@@ -261,7 +284,7 @@
                         ${debugPhoneInfo}
                     </div>
                     <div class="btn-group">
-                        <button class="action-btn copy-btn" onclick="copyText(this, \`${finalMsg.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`)">複製文字</button>
+                        <button class="action-btn copy-btn" onclick="copyText(this, \`${finalMsg.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`)">複製</button>
                         ${phoneBtnHtml}
                     </div>
                 </div>
