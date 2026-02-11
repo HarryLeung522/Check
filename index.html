@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>派克導師管理系統 - 全能修復版</title>
+    <title>派克導師管理系統 - 多人多號碼版</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <style>
         :root { --primary: #2c3e50; --accent: #3498db; --success: #27ae60; --whatsapp: #25D366; --warning: #f39c12; }
@@ -30,7 +30,6 @@
         .wa-btn:hover { background: #128C7E; }
         .copy-btn:hover { background: #7f8c8d; }
 
-        /* 上傳區域樣式 */
         .upload-area { border: 2px dashed #bdc3c7; padding: 15px; text-align: center; border-radius: 8px; margin-top: 10px; background: #fdfdfd; cursor: pointer; transition: 0.3s; }
         .upload-area:hover { border-color: var(--accent); background: #ecf0f1; }
         .upload-text { color: #7f8c8d; font-size: 0.9em; }
@@ -42,7 +41,7 @@
     <h1>派克導師 WhatsApp 發送器</h1>
     
     <div id="uploadSection" class="upload-area" onclick="document.getElementById('fileInput').click()">
-        <span class="upload-text">👉 如果自動連線失敗，請點擊這裡<b>上傳 CSV 檔案</b> (或是直接將檔案拖曳至此)</span>
+        <span class="upload-text">👉 如果自動連線失敗，請點擊這裡<b>上傳 CSV 檔案</b></span>
         <input type="file" id="fileInput" accept=".csv" style="display: none;" onchange="handleFileUpload(this.files)">
     </div>
 
@@ -81,7 +80,7 @@
     const DIRECT_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQFFF43IJhu4qgR8KiR_Oo9lwv7LkuTcjHzebpTvUd-SnnivG_5GwDT3-JzEncLTxKXbZuQ8LnU90n3/pub?output=csv';
     const PROXY_URL = 'https://corsproxy.io/?' + encodeURIComponent(DIRECT_URL);
     
-    // 電話在 H 行 (0=A, ... 7=H)
+    // H 行 (0=A, ... 7=H)
     const PHONE_COL_INDEX = 7; 
     // --------------
 
@@ -89,15 +88,13 @@
 
     window.onload = () => {
         document.getElementById('targetDate').valueAsDate = new Date();
-        tryAutoConnect(); // 嘗試自動連線
+        tryAutoConnect(); 
     };
 
-    // 嘗試自動連線 (先試 Proxy，再試直連)
     function tryAutoConnect() {
         const status = document.getElementById('status');
         status.innerText = '正在嘗試自動連線...';
 
-        // 嘗試方法 1: Proxy
         Papa.parse(PROXY_URL, {
             download: true,
             header: false,
@@ -108,7 +105,6 @@
             },
             error: () => {
                 console.log("Proxy 失敗，嘗試直連...");
-                // 嘗試方法 2: 直連
                 Papa.parse(DIRECT_URL, {
                     download: true,
                     header: false,
@@ -125,7 +121,6 @@
         });
     }
 
-    // 處理手動上傳
     function handleFileUpload(files) {
         if (!files || files.length === 0) return;
         const file = files[0];
@@ -139,7 +134,6 @@
         });
     }
 
-    // 統一資料處理函數
     function processData(data, successMsg) {
         const status = document.getElementById('status');
         const select = document.getElementById('tutorFilter');
@@ -154,7 +148,6 @@
         const tutors = new Set();
         cachedData.forEach((row, idx) => {
             if (idx === 0) return;
-            // G行 (index 6) 是名字
             if (row[6]) {
                 const names = row[6].split(/[\/,，\s、]+/).filter(n => n.length > 0);
                 names.forEach(n => tutors.add(n.trim()));
@@ -209,13 +202,16 @@
             const dateObj = parseChineseDate(row[3]); // D行 日期
             const rawNames = row[6] ? row[6].trim() : ""; // G行 導師
             
-            // H行 (Index 7) 電話
-            const rawPhone = row[PHONE_COL_INDEX] ? row[PHONE_COL_INDEX].toString().trim() : "";
+            // H行 電話 (讀取並預備分割)
+            const rawPhoneString = row[PHONE_COL_INDEX] ? row[PHONE_COL_INDEX].toString().trim() : "";
 
             if (dateObj && rawNames && dateObj >= baseDate && dateObj <= endDate) {
+                // 分割名字
                 const names = rawNames.split(/[\/,，\s、]+/).filter(n => n.length > 0);
-                
-                names.forEach(name => {
+                // 分割電話 (使用相同的分隔符號)
+                const phones = rawPhoneString.split(/[\/,，\s、]+/).filter(n => n.length > 0);
+
+                names.forEach((name, index) => {
                     const trimmedName = name.trim();
                     if (filterName !== 'ALL' && trimmedName !== filterName) return;
 
@@ -224,16 +220,32 @@
                     }
                     
                     personGroups[trimmedName].lessons.push({
-                        school: row[0], // A行
-                        date: row[3],   // D行
-                        day: row[4],    // E行
-                        time: row[5],   // F行
+                        school: row[0],
+                        date: row[3],
+                        day: row[4],
+                        time: row[5],
                         ts: dateObj.getTime()
                     });
                     
-                    if (rawPhone && rawPhone.length > 4) {
-                        personGroups[trimmedName].phone = rawPhone;
+                    // --- 智慧電話對應邏輯 ---
+                    let assignedPhone = "";
+                    if (phones.length > 0) {
+                        if (phones.length === 1) {
+                            // 情況A: 只有一個電話 (e.g., 導師: Harry/Candy, 電話: 91234567) -> 大家都用這個
+                            assignedPhone = phones[0];
+                        } else {
+                            // 情況B: 多個電話 (e.g., 導師: Harry/Candy, 電話: 91111111/92222222) -> 依序分配
+                            // Harry(index 0) 拿 phones[0], Candy(index 1) 拿 phones[1]
+                            assignedPhone = phones[index] ? phones[index] : ""; 
+                        }
                     }
+
+                    // 如果找到電話，且該電話長度合理，就存入
+                    // (如果同一個導師在多行出現，我們優先保留有填電話的那一行)
+                    if (assignedPhone && assignedPhone.length > 4) {
+                        personGroups[trimmedName].phone = assignedPhone;
+                    }
+                    // -----------------------
                     
                     count++;
                 });
@@ -269,7 +281,7 @@
                     const waLink = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(finalMsg)}`;
                     phoneBtnHtml = `<a href="${waLink}" target="_blank" class="action-btn wa-btn">📤 WhatsApp</a>`;
                 } else {
-                    debugPhoneInfo = `<span style="font-size:12px; color:#999; margin-left:5px;">(號碼異常)</span>`;
+                    debugPhoneInfo = `<span style="font-size:12px; color:#999; margin-left:5px;">(號碼異常: ${data.phone})</span>`;
                 }
             } else {
                  debugPhoneInfo = `<span style="font-size:12px; color:#999; margin-left:5px;">(無電話)</span>`;
