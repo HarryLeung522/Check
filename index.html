@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>派克導師管理系統 - 強力讀取版</title>
+    <title>派克導師管理系統 - WhatsApp 直送版</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <style>
-        :root { --primary: #2c3e50; --accent: #3498db; --success: #27ae60; }
+        :root { --primary: #2c3e50; --accent: #3498db; --success: #27ae60; --whatsapp: #25D366; }
         body { font-family: "Microsoft JhengHei", sans-serif; background: #f4f7f6; padding: 20px; line-height: 1.6; }
         .container { max-width: 850px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
         h1 { text-align: center; color: var(--primary); margin-bottom: 25px; }
@@ -20,15 +20,23 @@
         .status { text-align: center; margin: 15px 0; font-weight: bold; color: #e67e22; min-height: 24px; }
         .tutor-card { border: 1px solid #ddd; margin-bottom: 25px; border-radius: 8px; background: #fff; overflow: hidden; animation: fadeIn 0.5s ease; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .tutor-header { background: var(--primary); color: white; padding: 12px 15px; display: flex; justify-content: space-between; align-items: center; }
+        .tutor-header { background: var(--primary); color: white; padding: 12px 15px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+        .tutor-header span { font-size: 1.1em; font-weight: bold; }
         .tutor-content { padding: 20px; white-space: pre-wrap; background: #f9f9f9; font-size: 15px; border-top: 1px solid #eee; color: #2c3e50; }
-        .copy-btn { background: var(--success); color: white; border: none; padding: 6px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        
+        /* 按鈕樣式 */
+        .btn-group { display: flex; gap: 10px; }
+        .action-btn { border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; text-decoration: none; font-size: 14px; display: inline-block; }
+        .copy-btn { background: #95a5a6; color: white; }
+        .wa-btn { background: var(--whatsapp); color: white; display: flex; align-items: center; }
+        .wa-btn:hover { background: #128C7E; }
+        .copy-btn:hover { background: #7f8c8d; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>派克導師提示器</h1>
+    <h1>派克導師 WhatsApp 發送器</h1>
     
     <div class="controls">
         <div class="control-group">
@@ -53,7 +61,7 @@
             </select>
         </div>
 
-        <button class="btn-main full-width" onclick="startGeneration()">生成 WhatsApp 訊息</button>
+        <button class="btn-main full-width" onclick="startGeneration()">生成訊息</button>
     </div>
 
     <div id="status" class="status">準備讀取資料...</div>
@@ -61,11 +69,14 @@
 </div>
 
 <script>
-    // 原始 Google Sheet CSV 連結
+    // --- 設定區 ---
     const ORIGINAL_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQFFF43IJhu4qgR8KiR_Oo9lwv7LkuTcjHzebpTvUd-SnnivG_5GwDT3-JzEncLTxKXbZuQ8LnU90n3/pub?output=csv';
-    
-    // 使用 CORS Proxy 繞過瀏覽器限制
     const SHEET_URL = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(ORIGINAL_URL);
+    
+    // 【重要】請確認電話號碼在第幾行 (A=0, B=1, ..., G=6, H=7)
+    // 預設設為 7 (即 H 行)
+    const PHONE_COL_INDEX = 7; 
+    // --------------
 
     let cachedData = []; 
 
@@ -91,21 +102,18 @@
 
         Papa.parse(SHEET_URL, {
             download: true,
-            header: false, // 你的 CSV 格式看來不需要 header mode，因為我們是用 index 存取
+            header: false,
             complete: (results) => {
-                console.log("資料讀取成功:", results); // 用於除錯
                 cachedData = results.data;
                 
                 if (!cachedData || cachedData.length === 0) {
-                    status.innerText = '❌ 讀取成功但資料是空的，請檢查 Sheet。';
+                    status.innerText = '❌ 資料是空的，請檢查 Sheet。';
                     return;
                 }
 
                 const tutors = new Set();
                 cachedData.forEach((row, idx) => {
-                    // 跳過標題列 (idx 0) 和沒有導師名字的列
                     if (idx === 0 || !row[6]) return;
-                    
                     const names = row[6].split(/[\/,，\s、]+/).filter(n => n.length > 0);
                     names.forEach(n => tutors.add(n.trim()));
                 });
@@ -117,12 +125,9 @@
                     opt.textContent = name;
                     select.appendChild(opt);
                 });
-                status.innerText = '✅ 資料同步完成，請選擇條件後生成。';
+                status.innerText = '✅ 資料同步完成';
             },
-            error: (err) => { 
-                console.error(err);
-                status.innerText = '❌ 連線失敗！請確認 Google Sheet 已「發布到網路」。'; 
-            }
+            error: () => { status.innerText = '❌ 連線失敗！'; }
         });
     }
 
@@ -134,7 +139,6 @@
         const filterName = document.getElementById('tutorFilter').value;
 
         if (!cachedData || cachedData.length === 0) {
-            status.innerText = '⚠️ 資料未就緒，正在重新獲取...';
             initTutorList();
             return;
         }
@@ -151,10 +155,12 @@
         let count = 0;
 
         cachedData.forEach((row, idx) => {
-            if (idx === 0 || row.length < 7) return; // 確保有足夠的欄位
+            if (idx === 0 || row.length < 7) return;
 
-            const dateObj = parseChineseDate(row[3]); // D行: 日期
-            const rawNames = row[6] ? row[6].trim() : ""; // G行: 導師
+            const dateObj = parseChineseDate(row[3]);
+            const rawNames = row[6] ? row[6].trim() : "";
+            // 讀取電話號碼 (H行)
+            const rawPhone = row[PHONE_COL_INDEX] ? row[PHONE_COL_INDEX].trim() : "";
 
             if (dateObj && rawNames && dateObj >= baseDate && dateObj <= endDate) {
                 const names = rawNames.split(/[\/,，\s、]+/).filter(n => n.length > 0);
@@ -163,15 +169,20 @@
                     const trimmedName = name.trim();
                     if (filterName !== 'ALL' && trimmedName !== filterName) return;
 
-                    if (!personGroups[trimmedName]) personGroups[trimmedName] = [];
-                    personGroups[trimmedName].push({
-                        school: row[0], // A行: 學校
-                        course: row[1], // B行: 課程
-                        date: row[3],   // D行: 日期
-                        day: row[4],    // E行: 星期
-                        time: row[5],   // F行: 時間
+                    if (!personGroups[trimmedName]) {
+                        // 初始化結構，加入 phone 欄位
+                        personGroups[trimmedName] = { lessons: [], phone: rawPhone };
+                    }
+                    
+                    personGroups[trimmedName].lessons.push({
+                        school: row[0], course: row[1],
+                        date: row[3], day: row[4], time: row[5],
                         ts: dateObj.getTime()
                     });
+                    
+                    // 如果這行有電話，更新進去 (避免第一行沒電話的情況)
+                    if (rawPhone) personGroups[trimmedName].phone = rawPhone;
+                    
                     count++;
                 });
             }
@@ -185,21 +196,40 @@
         status.innerText = `✅ 成功生成 ${Object.keys(personGroups).length} 位導師的訊息！`;
 
         Object.keys(personGroups).sort().forEach(name => {
-            const lessons = personGroups[name].sort((a,b) => a.ts - b.ts);
+            const data = personGroups[name];
+            const lessons = data.lessons.sort((a,b) => a.ts - b.ts);
+            
             let lessonList = "";
             lessons.forEach(l => {
-                // 格式：日期（星期）時間：學校
                 lessonList += `${l.date}（${l.day}）${l.time}：${l.school}\n`;
             });
 
             const finalMsg = `${name}，想提提你，以下係你今個星期要上堂嘅時間：\n${lessonList}\n請預早最少10分鐘到達學校，如有任何關於課堂問題，請儘早同我講！另亦提醒你記得填埋導師進度表，thanks!!!`;
+            
+            // 處理電話號碼
+            let phoneBtnHtml = "";
+            if (data.phone) {
+                // 清理非數字字符
+                let cleanPhone = data.phone.replace(/\D/g, '');
+                // 如果是8位數字，自動補上 852
+                if (cleanPhone.length === 8) cleanPhone = '852' + cleanPhone;
+                
+                // 只有當有有效號碼時才生成 WhatsApp 按鈕
+                if (cleanPhone.length >= 8) {
+                    const waLink = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(finalMsg)}`;
+                    phoneBtnHtml = `<a href="${waLink}" target="_blank" class="action-btn wa-btn">📤 傳送 WhatsApp</a>`;
+                }
+            }
 
             const card = document.createElement('div');
             card.className = 'tutor-card';
             card.innerHTML = `
                 <div class="tutor-header">
                     <span>導師：${name}</span>
-                    <button class="copy-btn" onclick="copyText(this, \`${finalMsg.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`)">複製 WhatsApp</button>
+                    <div class="btn-group">
+                        <button class="action-btn copy-btn" onclick="copyText(this, \`${finalMsg.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`)">複製</button>
+                        ${phoneBtnHtml}
+                    </div>
                 </div>
                 <div class="tutor-content">${finalMsg}</div>
             `;
